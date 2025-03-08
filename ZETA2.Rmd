@@ -1,0 +1,129 @@
+---
+title: "ZETAAA"
+output: word_document
+date: "2025-02-07"
+---
+
+1. Import Data & Library
+```{r}
+# Library yang diperlukan
+library(readxl)  # Untuk membaca file Excel
+library(caret)   # Untuk memisahkan data (Training & Validation)
+library(brms)    # Untuk Bayesian Logistic Regression
+library(pROC)    # Untuk evaluasi model (AUC-ROC)
+
+# Load dataset dari Excel
+Data <- read_excel("D:/ITB/Semester 7/ZETA/Consulting Project/DS Consulting Dataset/excel dataset/Encoded_TrainingValidation_data.xlsx", 
+    col_types = c("numeric", "numeric", "numeric", 
+                  "numeric", "numeric", "numeric", 
+                  "numeric", "numeric", "numeric", 
+                  "numeric", "numeric"))
+
+# Melihat ringkasan data
+summary(Data)
+
+```
+2. Cek Encoding Data
+```{r}
+# Cek jumlah kategori di tiap variabel
+table(Data$Age_Group)  
+table(Data$Gender)  
+table(Data$Social_Status) 
+
+table(Data$App_Categories_Used)
+table(Data$Device_Type)
+table(Data$Network_Type)
+table(Data$Region)
+```
+
+3. Split Data (80% Training, 20% Validation)
+Training digunakan untuk melatih model, sedangkan validation digunakan untuk evaluasi.
+```{r}
+# Set seed agar hasilnya tetap konsisten
+set.seed(123)
+
+# Membagi data (80% Training, 20% Validation)
+train_index <- createDataPartition(Data$Age_Group, p = 0.8, list = FALSE)
+train_set <- Data[train_index, ]
+valid_set <- Data[-train_index, ]
+```
+
+4. Membangun Model Bayesian Logistic Regression
+```{r}
+# Model Bayesian Logistic Regression untuk Age_Group
+model_age <- brm(
+  formula = Age_Group ~ App_Categories_Used + Device_Type + Network_Type + Region,
+  data = train_set,
+  family = categorical(),
+  chains = 4, iter = 2000, warmup = 500, cores = 2
+)
+```
+```{r}
+summary(model_age)
+```
+
+```{r}
+# Model untuk Gender
+model_gender <- brm(
+  formula = Gender ~ App_Categories_Used + Device_Type + Network_Type + Region,
+  data = train_set,
+  family = bernoulli(),
+  chains = 4, iter = 2000, warmup = 500, cores = 2
+)
+```
+
+```{r}
+summary(model_gender)
+```
+
+```{r}
+# Model untuk Social Status
+model_social_status <- brm(
+  formula = Social_Status ~ App_Categories_Used + Device_Type + Network_Type + Region,
+  data = train_set,
+  family = categorical(),
+  chains = 4, iter = 2000, warmup = 500, cores = 2
+)
+```
+```{r}
+summary(model_social_status)
+```
+5. Prediksi Probabilitas untuk Kategori
+```{r}
+# Prediksi probabilitas untuk data validasi
+valid_preds_age <- posterior_epred(model_age, newdata = valid_set)
+valid_preds_gender <- posterior_epred(model_gender, newdata = valid_set)
+valid_preds_social_status <- posterior_epred(model_social_status, newdata = valid_set)
+
+# Menampilkan probabilitas hasil prediksi
+head(valid_preds_age)
+head(valid_preds_gender)
+head(valid_preds_social_status)
+```
+6. Evaluasi Model dengan Data Validasi
+```{r}
+# Ambil kelas prediksi berdasarkan probabilitas tertinggi
+predicted_class_age <- apply(valid_preds_age, 2, which.max) - 1  
+predicted_class_gender <- ifelse(valid_preds_gender > 0.5, 1, 0)
+predicted_class_social_status <- apply(valid_preds_social_status, 2, which.max) - 1  
+
+# Menghitung Akurasi
+accuracy_age <- sum(predicted_class_age == valid_set$Age_Group) / nrow(valid_set)
+accuracy_gender <- sum(predicted_class_gender == valid_set$Gender) / nrow(valid_set)
+accuracy_social_status <- sum(predicted_class_social_status == valid_set$Social_Status) / nrow(valid_set)
+
+print(paste("Accuracy for Age Group:", round(accuracy_age * 100, 2), "%"))
+print(paste("Accuracy for Gender:", round(accuracy_gender * 100, 2), "%"))
+print(paste("Accuracy for Social Status:", round(accuracy_social_status * 100, 2), "%"))
+
+# Log-Loss untuk Age Group
+log_loss_age <- -mean(log(valid_preds_age[cbind(1:nrow(valid_set), valid_set$Age_Group + 1)]))
+print(paste("Log-Loss for Age Group:", round(log_loss_age, 4)))
+
+# AUC-ROC untuk Age Group
+roc_curve_age <- roc(valid_set$Age_Group, valid_preds_age[, 2])
+auc_score_age <- auc(roc_curve_age)
+print(paste("AUC-ROC Score for Age Group:", round(auc_score_age, 4)))
+
+```
+
